@@ -1,5 +1,6 @@
 #define buttonPin1 7 // *кнопка на корпусе
 #define buttonPin2 6 // *кнопка админа
+#define piezoPin 9 // *пьезодинамик
 
 #include <Wire.h> //либа для работы с l2c
 #include <LiquidCrystal_I2C.h> //либа для работы с ЖК l2c экранами
@@ -14,7 +15,8 @@ String clearDisplay = "                "; //для очистки экрана
 
 int counter = 0; //счетчик нажатий кнопки
 int timerState = 5; // состояние количество минут
-long timer2Min = 120000;
+//! переменная для двух минут хранит время 8 минут
+long timer2Min = 480000; //TODO исправить в будущем
 long timer5Min = 300000;
 long timer10Min = 600000;
 String codeMessage = "Code ";
@@ -37,7 +39,9 @@ void showCode() {
   lcd.print(clearDisplay);
   lcd.setCursor(0, 1);
   lcd.print(codeMessage);lcd.print(code);
+  tone(piezoPin, 1000);
   delay(30000);
+  noTone(piezoPin);
   lcd.setCursor(0, 1);
   lcd.print(clearDisplay); // очистка экрана
   lcd.noBacklight(); //выключение подстветки
@@ -65,6 +69,7 @@ void setup() {
   randomSeed(analogRead(0)); // генератор шума на нулевом(0) аналоговом пине
   pinMode(buttonPin1, INPUT_PULLUP); // объявление кнопки с подтяжкой к земле
   pinMode(buttonPin2, INPUT_PULLUP);
+  pinMode(piezoPin, OUTPUT);
   lcd.init(); // инит экрана
   lcd.backlight(); // включение подстветки экрана
   generateCode();
@@ -88,7 +93,9 @@ void loop() {
   if (buttonState1 == LOW && isWork == false) {
     isWork = true;
     lcd.noBacklight();
+    tone(piezoPin, 500);
     delay(2000); //защита от ложного первого срабатывания
+    noTone(piezoPin);
   }
   //если нажата кнопка 2во время рабочего режима
   if (buttonState2 == LOW && isWork == true) {
