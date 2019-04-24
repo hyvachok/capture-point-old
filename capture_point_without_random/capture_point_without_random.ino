@@ -1,12 +1,16 @@
-#define buttonPin1 7 // *кнопка на корпусе
-#define buttonPin2 6 // *кнопка админа
-#define piezoPin 9   // *пьезодинамик
+#define buttonPin1 7 // *кнопка 1 на корпусе
+#define buttonPin2 8 // *кнопка 2 на корпусе
+#define btn1Led 9    // *диод кнопки 1
 
 #include <Wire.h>              //либа для работы с l2c
 #include <LiquidCrystal_I2C.h> //либа для работы с ЖК l2c экранами
 
-static int id = 1;         //! ID данной точки, при прошивке обязательно указать необходимую
-static String codes[8] = { //массив доступных кодов, нужный выбирается по ID
+static int id = 1;          //! ID данной точки, при прошивке обязательно указать необходимую
+int minutes = 1;            //! количество минут захвата
+long showCodeDelay = 30000; //! сколько секунд показывать код
+float multiply = 1.0;       //! множитель на случаи перебоев с таймером
+
+static String codes[8] = { //! массив доступных кодов, нужный выбирается по ID
     "2MP9P6",
     "SF438R",
     "PXY2Z9",
@@ -19,53 +23,42 @@ static String codes[8] = { //массив доступных кодов, нуж�
 LiquidCrystal_I2C lcd(0x27, 16, 2); // инит экрана и его размера
 int buttonState1 = 0;               //переменная для хранения состояния кнопки
 int buttonState2 = 0;
-
 char letters[15] = "0123456789ABCD";      //набор допустимых символов для кода
-char code[6];                             //переменная для хранения кода
 String clearDisplay = "                "; //для очистки экрана
-
-int counter = 0;    //счетчик нажатий кнопки
-int timerState = 3; // выбранный таймстамп (раньше было количество минут)
-long timer1 = 480000;
-long timer2 = 300000;
-long timer3 = 600000;
+// * переменные для евент лупа без delay
+unsigned long previousMillis = 0;     //время во время предыдущего тика
+unsigned long currentMillis = 0;      //текущее время
+const long interval = 500 * multiply; //интервал с которым должно происходить событие
+boolean tik_tok = false;
+// *
+float timerF = minutes * 60.0 * 1000.0; // дополнительные вычисления таймера
+long timer = timerF * multiply;         // значение таймера захвата
+int time = 0;
 String codeMessage = "Code ";
-long timerTime = timer2; //стандартное значение таймера
+long timerTime = timer;  //стандартное значение таймера
 boolean isTimer = false; //состояние таймера
-boolean isWork = false;  //* true - режим таймера false - режим настройки
+boolean isWork = true;   //* true - режим таймера false - режим настройки
 
 // метод показывающий на экране код
 void showCode()
 {
-  counter++; //при показе кода прибавляется счетчик
   codeMessage = "Code ";
   lcd.setCursor(0, 0);
   lcd.print(clearDisplay);
   lcd.setCursor(0, 1);
   lcd.print(codeMessage);
-  lcd.print(codes[id + 1]);
-  tone(piezoPin, 1000);
-  delay(30000);
-  noTone(piezoPin);
+  lcd.print(codes[id - 1]); // показ кода
+  delay(showCodeDelay * multiply);
   lcd.setCursor(0, 1);
+  lcd.print(clearDisplay); // очистка экрана
+  lcd.setCursor(0, 0);
   lcd.print(clearDisplay); // очистка экрана
   lcd.noBacklight();       //выключение подстветки
 }
-// метод показывающий на экране счетчик нажатий кнопки
-void showCounter()
-{
-  lcd.setCursor(0, 0);
-  lcd.print("Code was shown");
-  lcd.setCursor(0, 1);
-  lcd.print(counter);
-  lcd.print(" times");
-  delay(5000);
-}
-
 //метод показывающий на экране время
 void TimePrint()
 {
-  int time = timerTime / 1000;
+  time = timerTime / 1000;
   if (time / 60 % 60 < 10)
   {
     lcd.print("0");
@@ -84,9 +77,9 @@ void setup()
   randomSeed(analogRead(0));         // генератор шума на нулевом(0) аналоговом пине
   pinMode(buttonPin1, INPUT_PULLUP); // объявление кнопки с подтяжкой к земле
   pinMode(buttonPin2, INPUT_PULLUP);
-  pinMode(piezoPin, OUTPUT);
-  lcd.init();      // инит экрана
-  lcd.backlight(); // включение подстветки экрана
+  pinMode(btn1Led, OUTPUT);
+  lcd.init(); // инит экрана
+  digitalWrite(btn1Led, HIGH);
 }
 
 void loop()
@@ -95,108 +88,49 @@ void loop()
   buttonState2 = digitalRead(buttonPin2);
   // проверяем нажата ли кнопка
   // если нажата, то buttonState1 будет LOW:
-  if (buttonState1 == LOW && isWork == true)
+  if (buttonState1 == LOW || buttonState2 == LOW && isWork == true)
   {
     lcd.backlight(); // включение подстветки экрана
     isTimer = true;
-    lcd.setCursor(0, 0);
-    lcd.print(clearDisplay); // очистка экрана
-    lcd.setCursor(0, 1);
-    lcd.print(clearDisplay); // очистка экрана
-  }
-  //если нажама внешняя кнопка при режиме настройки
-  if (buttonState1 == LOW && isWork == false)
-  {
-    isWork = true;
-    lcd.noBacklight();
-    tone(piezoPin, 500);
-    delay(2000); //защита от ложного первого срабатывания
-    noTone(piezoPin);
-  }
-  //если нажата кнопка 2во время рабочего режима
-  if (buttonState2 == LOW && isWork == true)
-  {
-    lcd.backlight();
-    showCounter();
     isWork = false;
-    isTimer = false;
-    codeMessage = "New code ";
-  }
-  //если нажата кнопка в режиме настройки меняется количество минут в таймере
-  //TODO надо проверить работоспособность после изменения найзваний таймстампов
-  if (buttonState2 == LOW && isWork == false)
-  {
-    if (timerState == 1)
-    {
-      timerState = 2;
-    }
-    else if (timerState == 3)
-    {
-      timerState = 1;
-    }
-    else if (timerState == 2)
-    {
-      timerState = 3;
-    }
-    else if (timerState != 2 && timerState != 3 && timerState != 1)
-    {
-      timerState = 3;
-    }
-    if (timerState == 2)
-    {
-      timerTime = timer1;
-    }
-    else if (timerState == 3)
-    {
-      timerTime = timer2;
-    }
-    else if (timerState == 1)
-    {
-      timerTime = timer3;
-    }
+    lcd.setCursor(0, 0);
+    lcd.print(clearDisplay); // очистка экрана
     lcd.setCursor(0, 1);
     lcd.print(clearDisplay); // очистка экрана
-  }
-  // режим настройки
-  if (isWork == false)
-  {
-    counter = 0;
-    lcd.setCursor(0, 0);
-    lcd.print(codeMessage);
-    lcd.print(code);
-    lcd.setCursor(0, 1);
-    lcd.print("set minutes: ");
-    lcd.print(((timerTime / 1000) / 60) % 60);
+    digitalWrite(btn1Led, HIGH);
   }
   //когда таймер 0 восстановление состояния
   if (timerTime <= 0)
   {
-    if (timerState == 2)
-    {
-      timerTime = timer1;
-    }
-    if (timerState == 3)
-    {
-      timerTime = timer2;
-    }
-    if (timerState == 1)
-    {
-      timerTime = timer3;
-    }
+    timerTime = timer * 0.5; // уменьшаем время последующих захватов
     isTimer = false;
+    isWork = true;
     showCode();
+    digitalWrite(btn1Led, LOW);
   }
 
-  // если таймер активен вычитать по 100 мс
+  // если таймер активен вычитать по 1000 мс
   if (isTimer == true)
-  {
-    timerTime -= 100;
-  }
-  // показ времени
-  if (isWork == true)
   {
     lcd.setCursor(5, 0);
     TimePrint();
-    delay(100);
+    timerTime -= 1000 * multiply;
+    delay(1000 * multiply);
+  }
+  // евент луп для моргания диодом
+  currentMillis = millis();                                         //записываем текущее время
+  if (currentMillis - previousMillis >= interval && isWork == true) //если разница между текущим временем и временем предыдущего события больше интервала
+  {
+    previousMillis = currentMillis; //перезаписываем время срабатывания события
+    if (tik_tok)
+    {
+      digitalWrite(btn1Led, HIGH);
+      tik_tok = !tik_tok;
+    }
+    else
+    {
+      digitalWrite(btn1Led, LOW);
+      tik_tok = !tik_tok;
+    }
   }
 }
