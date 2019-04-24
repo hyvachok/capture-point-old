@@ -2,7 +2,6 @@
 #define buttonPin2 6 // *кнопка админа
 #define piezoPin 9   // *пьезодинамик
 
-#include <Arduino.h>
 #include <Wire.h>              //либа для работы с l2c
 #include <LiquidCrystal_I2C.h> //либа для работы с ЖК l2c экранами
 
