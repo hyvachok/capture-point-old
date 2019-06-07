@@ -4,6 +4,8 @@
 
 #include <Wire.h>              //либа для работы с l2c
 #include <LiquidCrystal_I2C.h> //либа для работы с ЖК l2c экранами
+#include <avr/sleep.h>
+#include <avr/wdt.h>
 
 static int id = 1;          //! ID данной точки, при прошивке обязательно указать необходимую
 int minutes = 1;            //! количество минут захвата
@@ -14,30 +16,25 @@ static String codes[8] = { //! массив доступных кодов, ну�
     "2MP9P6",
     "SF438R",
     "PXY2Z9",
-    "0XO6XH",
+    "1X56XH",
     "HG58IN",
     "5C22SK",
     "BH6F9Y",
     "5BDNY5"};
 
+volatile bool f = 0; //! aaaaaaaaaaaaaa
+
 LiquidCrystal_I2C lcd(0x27, 16, 2); // инит экрана и его размера
 int buttonState1 = 0;               //переменная для хранения состояния кнопки
 int buttonState2 = 0;
-char letters[15] = "0123456789ABCD";      //набор допустимых символов для кода
 String clearDisplay = "                "; //для очистки экрана
-// * переменные для евент лупа без delay
-unsigned long previousMillis = 0;     //время во время предыдущего тика
-unsigned long currentMillis = 0;      //текущее время
-const long interval = 500 * multiply; //интервал с которым должно происходить событие
-boolean tik_tok = false;
-// *
-float timerF = minutes * 60.0 * 1000.0; // дополнительные вычисления таймера
-long timer = timerF * multiply;         // значение таймера захвата
-int time = 0;
+float timer = minutes * 60.0 * 1000.0;    // дополнительные вычисления таймера
+int time = 0;                             // переменная для показа текущего времени
 String codeMessage = "Code ";
-long timerTime = timer;  //стандартное значение таймера
-boolean isTimer = false; //состояние таймера
-boolean isWork = true;   //* true - режим таймера false - режим настройки
+long timerTime = timer;    //стандартное значение таймера
+boolean isTimer = false;   //состояние таймера
+boolean tik_tok = false;   //переменная для моргания светодиодом
+boolean isCapture = false; //состояние захвата
 
 // метод показывающий на экране код
 void showCode()
@@ -48,7 +45,7 @@ void showCode()
   lcd.setCursor(0, 1);
   lcd.print(codeMessage);
   lcd.print(codes[id - 1]); // показ кода
-  delay(showCodeDelay * multiply);
+  delay(showCodeDelay);
   lcd.setCursor(0, 1);
   lcd.print(clearDisplay); // очистка экрана
   lcd.setCursor(0, 0);
@@ -74,12 +71,15 @@ void TimePrint()
 
 void setup()
 {
-  randomSeed(analogRead(0));         // генератор шума на нулевом(0) аналоговом пине
   pinMode(buttonPin1, INPUT_PULLUP); // объявление кнопки с подтяжкой к земле
   pinMode(buttonPin2, INPUT_PULLUP);
   pinMode(btn1Led, OUTPUT);
   lcd.init(); // инит экрана
-  digitalWrite(btn1Led, HIGH);
+  lcd.setCursor(0, 1);
+  lcd.print(clearDisplay); // очистка экрана
+  lcd.setCursor(0, 0);
+  lcd.print(clearDisplay); // очистка экран
+  lcd.noBacklight();       //выключение подстветки
 }
 
 void loop()
@@ -88,49 +88,53 @@ void loop()
   buttonState2 = digitalRead(buttonPin2);
   // проверяем нажата ли кнопка
   // если нажата, то buttonState1 будет LOW:
-  if (buttonState1 == LOW || buttonState2 == LOW && isWork == true)
+  if (buttonState1 == LOW || buttonState2 == LOW)
   {
     lcd.backlight(); // включение подстветки экрана
     isTimer = true;
-    isWork = false;
     lcd.setCursor(0, 0);
     lcd.print(clearDisplay); // очистка экрана
     lcd.setCursor(0, 1);
     lcd.print(clearDisplay); // очистка экрана
     digitalWrite(btn1Led, HIGH);
-  }
-  //когда таймер 0 восстановление состояния
-  if (timerTime <= 0)
-  {
-    timerTime = timer * 0.5; // уменьшаем время последующих захватов
-    isTimer = false;
-    isWork = true;
-    showCode();
-    digitalWrite(btn1Led, LOW);
+    isCapture = true;
   }
 
-  // если таймер активен вычитать по 1000 мс
-  if (isTimer == true)
+  if (isCapture)
   {
-    lcd.setCursor(5, 0);
-    TimePrint();
-    timerTime -= 1000 * multiply;
-    delay(1000 * multiply);
-  }
-  // евент луп для моргания диодом
-  currentMillis = millis();                                         //записываем текущее время
-  if (currentMillis - previousMillis >= interval && isWork == true) //если разница между текущим временем и временем предыдущего события больше интервала
-  {
-    previousMillis = currentMillis; //перезаписываем время срабатывания события
-    if (tik_tok)
+    //когда таймер 0 восстановление состояния
+    if (timerTime <= 0)
     {
+      timerTime = timer * 0.5; // уменьшаем время последующих захватов
+      isTimer = false;
       digitalWrite(btn1Led, HIGH);
-      tik_tok = !tik_tok;
-    }
-    else
-    {
+      showCode();
       digitalWrite(btn1Led, LOW);
+      isCapture = false;
+    }
+
+    // если таймер активен вычитать по 1000 мс
+    if (isTimer == true)
+    {
+      lcd.setCursor(5, 0);
+      TimePrint();
+      timerTime -= 1000 * multiply;
+      digitalWrite(btn1Led, tik_tok ? HIGH : LOW);
       tik_tok = !tik_tok;
+      delay(1000);
     }
   }
+  else //если захват не идет то устанавливаем вотчдог
+  {
+    wdt_enable(WDTO_8S);                 //Задаем интервал сторожевого таймера (8с)
+    WDTCSR |= (1 << WDIE);               //Устанавливаем бит WDIE регистра WDTCSR для разрешения прерываний от сторожевого таймера
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN); //Устанавливаем интересующий нас режим
+    sleep_mode();                        // Переводим МК в спящий режим
+  }
+}
+
+ISR(WDT_vect)
+{
+  wdt_disable();
+  f = !f;
 }
