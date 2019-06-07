@@ -121,7 +121,7 @@ void loop()
       timerTime -= 1000 * multiply;
       digitalWrite(btn1Led, tik_tok ? HIGH : LOW);
       tik_tok = !tik_tok;
-      delay(1000 * multiply);
+      delay(1000);
     }
   }
   else //если захват не идет то устанавливаем вотчдог
